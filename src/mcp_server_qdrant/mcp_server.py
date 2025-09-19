@@ -190,10 +190,150 @@ class QdrantMCPServer(FastMCP):
             description=self.tool_settings.tool_find_description,
         )
 
+        # List tool (read-only operation)
+        async def list_points(
+            ctx: Context,
+            collection_name: Annotated[
+                str, Field(description="The collection to list points from")
+            ],
+            limit: Annotated[
+                int, Field(description="Maximum number of points to return", ge=1, le=1000)
+            ] = 100,
+            offset: Annotated[
+                int, Field(description="Number of points to skip", ge=0)
+            ] = 0,
+        ) -> list[str]:
+            """
+            List memory points in Qdrant with their IDs and content.
+            :param ctx: The context for the request.
+            :param collection_name: The name of the collection to list points from.
+            :param limit: Maximum number of points to return (1-1000).
+            :param offset: Number of points to skip for pagination.
+            :return: A list of formatted entries with their IDs.
+            """
+            await ctx.debug(f"Listing points from collection {collection_name}")
+            
+            points_with_ids = await self.qdrant_connector.list_points(
+                collection_name=collection_name,
+                limit=limit,
+                offset=offset,
+            )
+            
+            if not points_with_ids:
+                return ["No points found in the collection."]
+            
+            content = [
+                f"Found {len(points_with_ids)} points in collection '{collection_name}':",
+            ]
+            for point_id, entry in points_with_ids:
+                content.append(f"<point><id>{point_id}</id>{self.format_entry(entry)}</point>")
+            
+            return content
+
+        list_foo = list_points
+
+        if self.qdrant_settings.collection_name:
+            list_foo = make_partial_function(
+                list_foo, {"collection_name": self.qdrant_settings.collection_name}
+            )
+
+        # Register the list tool (always available as it's read-only)
+        self.tool(
+            list_foo,
+            name="qdrant-list",
+            description=self.tool_settings.tool_list_description,
+        )
+
         if not self.qdrant_settings.read_only:
             # Those methods can modify the database
             self.tool(
                 store_foo,
                 name="qdrant-store",
                 description=self.tool_settings.tool_store_description,
+            )
+
+            # Edit tool
+            async def edit_point(
+                ctx: Context,
+                point_id: Annotated[str, Field(description="The ID of the point to edit")],
+                information: Annotated[str, Field(description="New text content for the point")],
+                collection_name: Annotated[
+                    str, Field(description="The collection containing the point to edit")
+                ],
+                metadata: Annotated[
+                    Metadata | None,
+                    Field(
+                        description="New metadata for the point. Any json is accepted."
+                    ),
+                ] = None,
+            ) -> str:
+                """
+                Edit an existing memory point in Qdrant by its ID.
+                :param ctx: The context for the request.
+                :param point_id: The ID of the point to edit.
+                :param information: The new content for the point.
+                :param collection_name: The name of the collection containing the point.
+                :param metadata: New JSON metadata to store with the information, optional.
+                :return: A message indicating the result of the edit operation.
+                """
+                await ctx.debug(f"Editing point {point_id} in collection {collection_name}")
+
+                entry = Entry(content=information, metadata=metadata)
+                success = await self.qdrant_connector.update_point(
+                    point_id, entry, collection_name=collection_name
+                )
+
+                if success:
+                    return f"Successfully updated point {point_id} in collection {collection_name}"
+                else:
+                    return f"Failed to update point {point_id}. Point may not exist or collection may not exist."
+
+            # Delete tool
+            async def delete_point(
+                ctx: Context,
+                point_id: Annotated[str, Field(description="The ID of the point to delete")],
+                collection_name: Annotated[
+                    str, Field(description="The collection containing the point to delete")
+                ],
+            ) -> str:
+                """
+                Delete a memory point from Qdrant by its ID.
+                :param ctx: The context for the request.
+                :param point_id: The ID of the point to delete.
+                :param collection_name: The name of the collection containing the point.
+                :return: A message indicating the result of the delete operation.
+                """
+                await ctx.debug(f"Deleting point {point_id} from collection {collection_name}")
+
+                success = await self.qdrant_connector.delete_point(
+                    point_id, collection_name=collection_name
+                )
+
+                if success:
+                    return f"Successfully deleted point {point_id} from collection {collection_name}"
+                else:
+                    return f"Failed to delete point {point_id}. Point may not exist or collection may not exist."
+
+            edit_foo = edit_point
+            delete_foo = delete_point
+
+            if self.qdrant_settings.collection_name:
+                edit_foo = make_partial_function(
+                    edit_foo, {"collection_name": self.qdrant_settings.collection_name}
+                )
+                delete_foo = make_partial_function(
+                    delete_foo, {"collection_name": self.qdrant_settings.collection_name}
+                )
+
+            # Register the edit and delete tools
+            self.tool(
+                edit_foo,
+                name="qdrant-edit",
+                description=self.tool_settings.tool_edit_description,
+            )
+
+            self.tool(
+                delete_foo,
+                name="qdrant-delete",
+                description=self.tool_settings.tool_delete_description,
             )

@@ -137,6 +137,173 @@ class QdrantConnector:
             for result in search_results.points
         ]
 
+    async def get_point_by_id(
+        self,
+        point_id: str,
+        *,
+        collection_name: str | None = None,
+    ) -> Entry | None:
+        """
+        Get a specific point by its ID.
+        :param point_id: The ID of the point to retrieve.
+        :param collection_name: The name of the collection to search in, optional. If not provided,
+                                the default collection is used.
+        :return: The entry if found, None otherwise.
+        """
+        collection_name = collection_name or self._default_collection_name
+        collection_exists = await self._client.collection_exists(collection_name)
+        if not collection_exists:
+            return None
+
+        try:
+            points = await self._client.retrieve(
+                collection_name=collection_name,
+                ids=[point_id],
+                with_payload=True,
+            )
+            
+            if not points or len(points) == 0:
+                return None
+                
+            point = points[0]
+            return Entry(
+                content=point.payload["document"],
+                metadata=point.payload.get("metadata"),
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving point {point_id}: {e}")
+            return None
+
+    async def update_point(
+        self,
+        point_id: str,
+        entry: Entry,
+        *,
+        collection_name: str | None = None,
+    ) -> bool:
+        """
+        Update an existing point with new content and metadata.
+        :param point_id: The ID of the point to update.
+        :param entry: The new entry data to update the point with.
+        :param collection_name: The name of the collection, optional. If not provided,
+                                the default collection is used.
+        :return: True if the point was updated successfully, False otherwise.
+        """
+        collection_name = collection_name or self._default_collection_name
+        assert collection_name is not None
+        
+        collection_exists = await self._client.collection_exists(collection_name)
+        if not collection_exists:
+            return False
+
+        try:
+            # Check if point exists
+            existing_point = await self.get_point_by_id(point_id, collection_name=collection_name)
+            if existing_point is None:
+                return False
+
+            # Embed the new document
+            embeddings = await self._embedding_provider.embed_documents([entry.content])
+            
+            # Update the point
+            vector_name = self._embedding_provider.get_vector_name()
+            payload = {"document": entry.content, METADATA_PATH: entry.metadata}
+            
+            await self._client.upsert(
+                collection_name=collection_name,
+                points=[
+                    models.PointStruct(
+                        id=point_id,
+                        vector={vector_name: embeddings[0]},
+                        payload=payload,
+                    )
+                ],
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error updating point {point_id}: {e}")
+            return False
+
+    async def delete_point(
+        self,
+        point_id: str,
+        *,
+        collection_name: str | None = None,
+    ) -> bool:
+        """
+        Delete a point by its ID.
+        :param point_id: The ID of the point to delete.
+        :param collection_name: The name of the collection, optional. If not provided,
+                                the default collection is used.
+        :return: True if the point was deleted successfully, False otherwise.
+        """
+        collection_name = collection_name or self._default_collection_name
+        assert collection_name is not None
+        
+        collection_exists = await self._client.collection_exists(collection_name)
+        if not collection_exists:
+            return False
+
+        try:
+            # Check if point exists
+            existing_point = await self.get_point_by_id(point_id, collection_name=collection_name)
+            if existing_point is None:
+                return False
+
+            # Delete the point
+            await self._client.delete(
+                collection_name=collection_name,
+                points_selector=models.PointIdsList(
+                    points=[point_id],
+                ),
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting point {point_id}: {e}")
+            return False
+
+    async def list_points(
+        self,
+        *,
+        collection_name: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[tuple[str, Entry]]:
+        """
+        List points in the collection with their IDs.
+        :param collection_name: The name of the collection, optional. If not provided,
+                                the default collection is used.
+        :param limit: Maximum number of points to return.
+        :param offset: Number of points to skip.
+        :return: A list of tuples containing (point_id, entry).
+        """
+        collection_name = collection_name or self._default_collection_name
+        collection_exists = await self._client.collection_exists(collection_name)
+        if not collection_exists:
+            return []
+
+        try:
+            points = await self._client.scroll(
+                collection_name=collection_name,
+                limit=limit,
+                offset=offset,
+                with_payload=True,
+            )
+            
+            return [
+                (
+                    str(point.id),
+                    Entry(
+                        content=point.payload["document"],
+                        metadata=point.payload.get("metadata"),
+                    )
+                )
+                for point in points[0]  # points[0] contains the actual points
+            ]
+        except Exception as e:
+            logger.error(f"Error listing points: {e}")
+            return []
+
     async def _ensure_collection_exists(self, collection_name: str):
         """
         Ensure that the collection exists, creating it if necessary.
