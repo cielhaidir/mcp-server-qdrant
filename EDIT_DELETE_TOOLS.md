@@ -167,6 +167,53 @@ docker run -p 8000:8000 \
   mcp-server-qdrant
 ```
 
+### Using Docker Compose (Recommended)
+
+For easier testing with a local Qdrant instance:
+
+```bash
+# Start both MCP server and Qdrant
+docker-compose up -d
+
+# View logs
+docker-compose logs -f mcp-server-qdrant
+
+# Stop services
+docker-compose down
+```
+
+### Debugging Connection Issues
+
+If the MCP server runs but you can't connect:
+
+1. **Check server logs**: The server now includes detailed logging
+   ```bash
+   docker logs <container_id>
+   ```
+
+2. **Verify network binding**: The server binds to `0.0.0.0:8000` by default
+   ```bash
+   # Test connection
+   curl http://localhost:8000/
+   ```
+
+3. **Test server locally**: Use the included test script
+   ```bash
+   python test_server_locally.py
+   ```
+
+### Custom Configuration
+
+You can override the default host/port:
+
+```bash
+# Custom host and port
+docker run -p 9000:9000 \
+  -e QDRANT_URL="http://your-qdrant:6333" \
+  mcp-server-qdrant \
+  python -m mcp_server_qdrant.main --transport sse --host 0.0.0.0 --port 9000
+```
+
 ## Testing
 
 Run the included test script to verify the tools are properly registered:

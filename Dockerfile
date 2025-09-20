@@ -25,8 +25,12 @@ EXPOSE 8000
 # Set environment variables with defaults that can be overridden at runtime
 # Note: QDRANT_API_KEY should be set at runtime for security reasons
 ENV QDRANT_URL=""
+ENV QDRANT_API_KEY=""
 ENV COLLECTION_NAME="default-collection"
 ENV EMBEDDING_MODEL="sentence-transformers/all-MiniLM-L6-v2"
+
+# Set Python to output logs immediately
+ENV PYTHONUNBUFFERED=1
 
 # Run the server with SSE transport
 CMD ["python", "-m", "mcp_server_qdrant.main", "--transport", "sse"]
