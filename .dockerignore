@@ -30,9 +30,9 @@ htmlcov
 .DS_Store
 Thumbs.db
 
-# Documentation
-*.md
+# Documentation (but keep README.md as it's needed for build)
 docs/
+EDIT_DELETE_TOOLS.md
 
 # Tests (unless specifically needed)
 tests/

@@ -6,11 +6,18 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 # Copy the project files
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
-# Install the package and its dependencies
-RUN uv pip install --system --no-cache-dir .
+# Install dependencies first
+RUN uv pip install --system --no-cache-dir \
+    "fastembed>=0.6.0" \
+    "qdrant-client>=1.12.0" \
+    "pydantic>=2.10.6" \
+    "fastmcp>=2.7.0"
+
+# Install the local package
+RUN uv pip install --system --no-cache-dir --no-deps .
 
 # Expose the default port for SSE transport
 EXPOSE 8000
